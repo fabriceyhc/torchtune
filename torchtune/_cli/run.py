@@ -17,7 +17,6 @@ import torchtune
 from torch.distributed.run import get_args_parser as get_torchrun_args_parser, run
 from torchtune._cli.subcommand import Subcommand
 from torchtune._recipe_registry import Config, get_all_recipes, Recipe
-import torch; torch.distributed.init_process_group(backend="nccl", timeout=datetime.timedelta(seconds=1200))
 
 ROOT = Path(torchtune.__file__).parent.parent
 
