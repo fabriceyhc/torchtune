@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 import ast
 import json
+import textwrap
 import numpy as np
 
 from datasets import load_dataset
@@ -177,6 +178,52 @@ def chat_dataset(
         **load_dataset_kwargs,
     )
 
+TEMPLATE = textwrap.dedent("""
+    ## Instructions 
+
+    Review the medical note below. Explain whether or not the medical notes describe the use of a particular drug:
+        - Heroin
+        - Cocaine
+        - Methamphetamine
+        - Benzodiazepine
+        - Prescription Opioids
+        - Marijuana
+        - Fentanyl
+    
+    Notes:
+    - Any mention of drug use within the entire note, you will mark that sentence as drugUseAnswer = True.
+    - If drugUseAnswer = False, then do not mark any of the other substances.
+    - IDU, IVDA, IVDU are all indicative of injectionDrugUseAnswer = True.
+    - If a patient denies a particular drug, do not mark that drug as being present in the note. 
+        - Ex: 'patient denied using heroin' then drugUseAnswer = False and heroinUseAnswer = False. 
+    - If the notes mentions amphetamines within the context of illicit use, that can be marked as methamphetamineUseAnswer = True. 
+        - Ex: If these are amphetamine salts for treatment of ADHD then methamphetamineUseAnswer = False.
+    - For oxycontin or other opiates, do not highlight any that are prescribed and taken as medications. Only annotate if it is illicit use.
+        - Ex: If patient is illicitly using suboxone, then that would be marked as prescriptionOpioidsUseAnswer = True.
+
+    Think step by step and provide explainations for your answers. Then summarize your analysis in the following JSON format: 
+    
+    ```json
+    {
+        "heroinUseAnswer": <boolean>,
+        "cocaineUseAnswer": <boolean>,
+        "methamphetamineUseAnswer": <boolean>,
+        "benzodiazepineUseAnswer": <boolean>,
+        "prescriptionOpioidsUseAnswer": <boolean>,
+        "marijuanaUseAnswer": <boolean>,
+        "fentanylUseAnswer": <boolean>,
+        "injectionDrugUseAnswer": <boolean>,
+        "drugUseAnswer": <boolean>
+    }
+    ```
+    
+    ## Medical Note
+    
+    {{medical_note}}
+
+    ## Explanation and Summary
+""")
+
 def format_answer(label):
     answers = {
         "heroinUse": bool(label[0]),
@@ -193,7 +240,7 @@ def format_answer(label):
     return json.dumps(answers, indent=4)
 
 def message_converter(sample: Mapping[str, Any], train_on_input=None) -> List[Message]:
-    input_msg = sample["text"]
+    input_msg = TEMPLATE.replace("{{medical_note}}", sample["text"])
     output_msg = format_answer(np.array(ast.literal_eval(sample["label"])))
 
     user_message = Message(
