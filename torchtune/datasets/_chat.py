@@ -275,6 +275,6 @@ def custom_dataset(
         max_seq_len=max_seq_len,
         # To load a local file we specify it as data_files just like in
         # load_dataset
-        data_files="/local1/fabricehc/overdose/data/processed/under_over_sample/train.csv",
+        data_files="/data2/fabricehc/overdose/data/processed/under_over_sample/train.csv",
         split="train"
     )
