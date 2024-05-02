@@ -6,6 +6,8 @@
 
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
+import ast
+import json
 import numpy as np
 
 from datasets import load_dataset
@@ -89,7 +91,7 @@ class ChatDataset(Dataset):
         return self._prepare_sample(sample)
 
     def _prepare_sample(self, sample: Mapping[str, Any]) -> Tuple[List[int], List[int]]:
-        messages = self._convert_to_messages(sample, self.train_on_input)
+        messages = self._convert_to_messages(sample)
         if self.chat_format is not None:
             messages = self.chat_format.format(messages)
         validate_messages(messages)
@@ -173,4 +175,59 @@ def chat_dataset(
         max_seq_len=max_seq_len,
         train_on_input=train_on_input,
         **load_dataset_kwargs,
+    )
+
+def format_answer(label):
+    answers = {
+        "heroinUse": bool(label[0]),
+        "cocaineUse": bool(label[1]),
+        "methamphetamineUse": bool(label[2]),
+        "benzodiazepineUse": bool(label[3]),
+        "prescriptionOpioidsUse": bool(label[4]),
+        "marijuanaUse": bool(label[5]),
+        "fentanylUse": bool(label[6]),
+        "injectionDrugUse": bool(label[7]),
+        "drugUse": bool(label[8])
+    }
+
+    return json.dumps(answers, indent=4)
+
+def message_converter(sample: Mapping[str, Any], train_on_input=None) -> List[Message]:
+    input_msg = sample["text"]
+    output_msg = format_answer(np.array(ast.literal_eval(sample["label"])))
+
+    user_message = Message(
+        role="user",
+        content=input_msg,
+        masked=False,  # True if not training on prompt
+    )
+    assistant_message = Message(
+        role="assistant",
+        content=output_msg,
+        masked=False,
+    )
+    # A single turn conversation
+    messages = [user_message, assistant_message]
+
+    return messages
+
+def custom_dataset(
+    *,
+    tokenizer: Tokenizer,
+    max_seq_len: int = 2048,  # You can expose this if you want to experiment
+) -> ChatDataset:
+
+    return ChatDataset(
+        tokenizer=tokenizer,
+        # For local csv files, we specify "csv" as the source, just like in
+        # load_dataset
+        source="csv",
+        convert_to_messages=message_converter,
+        # Llama3 does not need a chat format
+        chat_format=None,
+        max_seq_len=max_seq_len,
+        # To load a local file we specify it as data_files just like in
+        # load_dataset
+        data_files="/local1/fabricehc/overdose/data/processed/under_over_sample/train.csv",
+        split="train"
     )
