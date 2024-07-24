@@ -58,11 +58,18 @@ torchtune tutorials.
    :tags: finetuning,llama2,lora
 
 .. customcarditem::
-   :header: Understanding QLoRA in TorchTune
+   :header: Understanding QLoRA in torchtune
    :card_description: Using QLoRA to quantize base model weights and maximize memory savings
    :image: _static/img/generic-pytorch-logo.png
    :link: tutorials/qlora_finetune.html
    :tags: finetuning,llama2,qlora
+
+.. customcarditem::
+   :header: Finetuning with QAT in torchtune
+   :card_description: Finetuning of Llama3 using QAT
+   :image: _static/img/generic-pytorch-logo.png
+   :link: tutorials/qat_finetune.html
+   :tags: finetuning,llama3,qat,quantization,evals
 
 .. customcarditem::
    :header: End-to-End Workflow with torchtune
@@ -88,6 +95,7 @@ torchtune tutorials.
    overview
    install
    tutorials/first_finetune_tutorial
+   tune_cli
 
 .. toctree::
    :glob:
@@ -98,6 +106,7 @@ torchtune tutorials.
    tutorials/llama3
    tutorials/lora_finetune
    tutorials/qlora_finetune
+   tutorials/qat_finetune
    tutorials/e2e_flow
    tutorials/datasets
    tutorials/chat

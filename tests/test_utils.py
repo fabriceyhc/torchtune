@@ -12,39 +12,35 @@ import unittest
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, Generator, Optional, TextIO, Tuple, Union
+from typing import Any, Dict, Generator, List, Optional, TextIO, Tuple, Union
 
 import pytest
 
 import torch
 from torch import nn
-from torchtune.modules.tokenizers import SentencePieceTokenizer
+from torchtune.data import ChatFormat, Message, truncate
+from torchtune.modules.tokenizers import ModelTokenizer
 
 skip_if_cuda_not_available = unittest.skipIf(
     not torch.cuda.is_available(), "CUDA is not available"
 )
 
 CKPT_MODEL_PATHS = {
-    "small_test_ckpt_tune": "/tmp/test-artifacts/small-ckpt-tune-03082024.pt",
-    "small_test_ckpt_meta": "/tmp/test-artifacts/small-ckpt-meta-03082024.pt",
-    "small_test_ckpt_hf": "/tmp/test-artifacts/small-ckpt-hf-03082024.pt",
+    "llama2_tune": "/tmp/test-artifacts/small-ckpt-tune-03082024.pt",
+    "llama2_meta": "/tmp/test-artifacts/small-ckpt-meta-03082024.pt",
+    "llama2_hf": "/tmp/test-artifacts/small-ckpt-hf-03082024.pt",
+    "llama3_tune": "/tmp/test-artifacts/small-ckpt-tune-llama3-05052024.pt",
     "llama2_7b": "/tmp/test-artifacts/llama2-7b-torchtune.pt",
 }
 
-
-def torch_version_ge(version: str) -> bool:
-    """
-    Check if torch version is greater than or equal to the given version
-    """
-    return version in torch.__version__ or torch.__version__ >= version
+TOKENIZER_PATHS = {
+    "llama2": "/tmp/test-artifacts/tokenizer.model",
+    "llama3": "/tmp/test-artifacts/tokenizer_llama3.model",
+}
 
 
-# Inherit from SentencePieceTokenizer class to reuse its tokenize_messages method
-class DummyTokenizer(SentencePieceTokenizer):
-    def __init__(self):
-        self.encodes_whitespace = False
-
-    def encode(self, text, add_bos=True, add_eos=True, **kwargs):
+class DummyTokenizer(ModelTokenizer):
+    def encode(self, text, add_bos=True, add_eos=True, **kwargs) -> List[int]:
         words = text.split()
         tokens = [len(word) for word in words]
         if add_bos:
@@ -52,6 +48,59 @@ class DummyTokenizer(SentencePieceTokenizer):
         if add_eos:
             tokens = tokens + [self.eos_id]
         return tokens
+
+    def tokenize_messages(
+        self, messages: List[Message], max_seq_len: Optional[int] = None
+    ) -> Tuple[List[int], List[bool]]:
+        """
+        A simplified version of Llama2Tokenizer's ``tokenize_messages`` for testing purposes.
+        """
+        start_of_turn = True
+        end_of_turn = False
+        tokenized_messages = []
+        mask = []
+        for message in messages:
+            # If assistant message, this is the end of a turn
+            end_of_turn = message.role == "assistant"
+
+            # Prepend BOS on start of new turns
+            if start_of_turn:
+                tokenized_messages.append(self.bos_id)
+                mask.append(message.masked)
+
+            # Tokenize current message, append with masks
+            for item in message.content:
+                if item["type"] == "text":
+                    tokens = self.encode(
+                        item["content"],
+                        add_bos=False,
+                        add_eos=False,
+                    )
+                elif item["type"] == "image":
+                    tokens = [self.image_id]
+
+            tokenized_messages.extend(tokens)
+            mask.extend([message.masked] * len(tokens))
+
+            # If assistant message, append EOS at end
+            if end_of_turn:
+                tokenized_messages.append(self.eos_id)
+                mask.append(message.masked)
+                end_of_turn = False
+                start_of_turn = True
+            else:
+                start_of_turn = False
+
+            # Break out early if we reach max_seq_len
+            if max_seq_len and len(tokenized_messages) >= max_seq_len:
+                break
+
+        # Finally, truncate if necessary
+        if max_seq_len:
+            tokenized_messages = truncate(tokenized_messages, max_seq_len, self.eos_id)
+            mask = truncate(mask, max_seq_len, message.masked)
+
+        return tokenized_messages, mask
 
     @property
     def eos_id(self):
@@ -61,14 +110,39 @@ class DummyTokenizer(SentencePieceTokenizer):
     def bos_id(self):
         return 0
 
+    @property
+    def image_id(self):
+        return -2
+
+
+class DummyChatFormat(ChatFormat):
+
+    B_SYS, E_SYS = "System:\n", "\n"
+    B_INST, E_INST = "User:\n", "\nAssistant:\n"
+    B_ASST, E_ASST = "", ""
+    system = f"{B_SYS}{{content}}{E_SYS}"
+    user = f"{B_INST}{{content}}{E_INST}"
+    assistant = f"{B_ASST}{{content}}{E_ASST}"
+
+    @classmethod
+    def format(
+        cls,
+        messages,
+    ):
+        formats = {"system": cls.system, "user": cls.user, "assistant": cls.assistant}
+        formatted_dialogue = []
+        for message in messages:
+            content = formats.get(message.role).format(
+                content=message.content[0]["content"]
+            )
+            formatted_dialogue.append(
+                Message(role=message.role, content=content, masked=message.masked),
+            )
+        return formatted_dialogue
+
 
 def get_assets_path():
     return Path(__file__).parent / "assets"
-
-
-def init_weights_with_constant(model: nn.Module, constant: float = 1.0) -> None:
-    for p in model.parameters():
-        nn.init.constant_(p, constant)
 
 
 def fixed_init_tensor(
@@ -218,3 +292,10 @@ def gen_log_file_name(tmpdir, suffix: Optional[str] = None) -> str:
         filename += suffix
     filename += ".txt"
     return filename
+
+
+def assert_dialogue_equal(actual, expected):
+    assert len(actual) == len(expected)
+    for i in range(len(actual)):
+        assert actual[i].role == expected[i].role
+        assert actual[i].text_content == expected[i].text_content

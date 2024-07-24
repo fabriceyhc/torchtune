@@ -28,7 +28,7 @@ from torchtune.modules.peft import LORA_ATTN_MODULES, LoRALinear
 """
 Component builders for the Llama3 model and popular variants such as LoRA.
 
-TorchTune provides composable building blocks. Builder functions help
+torchtune provides composable building blocks. Builder functions help
 stitch these building blocks into higher-level components. This design has
 two benefits:
 - The building blocks themselves are very flexible. For example, ``CausalSelfAttention``
@@ -64,9 +64,9 @@ def llama3(
         num_layers (int): number of layers in the transformer decoder.
         num_heads (int): number of query heads. For MHA this is also the
             number of heads for key and value
-        num_kv_heads (int): number of key and value heads. If specified,
-            user should ensure `num_heads` % `num_kv_heads` == 0. Default value is
-            `None`, in which case this is the same as MHA
+        num_kv_heads (int): number of key and value heads. User should ensure
+            `num_heads` % `num_kv_heads` == 0. For standard MHA set `num_kv_heads` == `num_heads`,
+            for GQA `num_kv_heads` < `num_heads`, and for MQA set `num_kv_heads` == 1.
         embed_dim (int): embedding dimension for self-attention
         max_seq_len (int): maximum sequence length the model will be run with, as used
             by :func:`~torchtune.modules.KVCache`
@@ -155,7 +155,7 @@ def lora_llama3(
 ) -> TransformerDecoder:
     """
     Return a version of Llama3 (an instance of :func:`~torchtune.modules.TransformerDecoder`)
-    with LoRA applied to some of the linear layers in its self-attention modules.
+    with LoRA applied based on the passed in configuration.
 
     Args:
         lora_attn_modules (List[LORA_ATTN_MODULES]): list of which linear layers
@@ -169,9 +169,9 @@ def lora_llama3(
         num_layers (int): number of layers in the transformer decoder.
         num_heads (int): number of query heads. For MHA this is also the
             number of heads for key and value
-        num_kv_heads (int): number of key and value heads. If specified,
-            user should ensure `num_heads` % `num_kv_heads` == 0. Default value is
-            `None`, in which case this is the same as MHA
+        num_kv_heads (int): number of key and value heads. User should ensure
+            `num_heads` % `num_kv_heads` == 0. For standard MHA set `num_kv_heads` == `num_heads`,
+            for GQA `num_kv_heads` < `num_heads`, and for MQA set `num_kv_heads` == 1.
         embed_dim (int): embedding dimension for self-attention
         max_seq_len (int): maximum sequence length the model will be run with, as used
             by :func:`~torchtune.modules.KVCache`
@@ -215,6 +215,7 @@ def lora_llama3(
             lora_rank=lora_rank,
             lora_alpha=lora_alpha,
             quantize_base=quantize_base,
+            lora_dropout=lora_dropout,
         )
     else:
         mlp = llama3_mlp(dim=embed_dim, hidden_dim=hidden_dim)
@@ -230,7 +231,7 @@ def lora_llama3(
 
     # TODO: quantize_base is not applied to final output_proj currently.
     output_proj = (
-        LoRALinear(embed_dim, vocab_size, rank=lora_rank, alpha=lora_alpha)
+        LoRALinear(embed_dim, vocab_size, rank=lora_rank, alpha=lora_alpha, dropout=lora_dropout)
         if apply_lora_to_output
         else nn.Linear(embed_dim, vocab_size, bias=False)
     )
@@ -282,9 +283,9 @@ def lora_llama3_self_attention(
         embed_dim (int): embedding dimension for self-attention
         num_heads (int): number of query heads. For MHA this is also the
             number of heads for key and value
-        num_kv_heads (int): number of key and value heads. If specified,
-            user should ensure `num_heads` % `num_kv_heads` == 0. Default value is
-            `None`, in which case this is the same as MHA
+        num_kv_heads (int): number of key and value heads. User should ensure
+            `num_heads` % `num_kv_heads` == 0. For standard MHA set `num_kv_heads` == `num_heads`,
+            for GQA `num_kv_heads` < `num_heads`, and for MQA set `num_kv_heads` == 1.
         max_seq_len (int): maximum sequence length the model will be run with, as used
             by :func:`~torchtune.modules.KVCache`
         attn_dropout (float): dropout value passed onto scaled_dot_product_attention.
@@ -315,6 +316,7 @@ def lora_llama3_self_attention(
             num_heads * head_dim,
             rank=lora_rank,
             alpha=lora_alpha,
+            dropout=lora_dropout,
             quantize_base=quantize_base,
         )
         if "q_proj" in lora_modules
@@ -326,6 +328,7 @@ def lora_llama3_self_attention(
             num_kv_heads * head_dim,
             rank=lora_rank,
             alpha=lora_alpha,
+            dropout=lora_dropout,
             quantize_base=quantize_base,
         )
         if "k_proj" in lora_modules
@@ -337,6 +340,7 @@ def lora_llama3_self_attention(
             num_kv_heads * head_dim,
             rank=lora_rank,
             alpha=lora_alpha,
+            dropout=lora_dropout,
             quantize_base=quantize_base,
         )
         if "v_proj" in lora_modules
@@ -348,6 +352,7 @@ def lora_llama3_self_attention(
             embed_dim,
             rank=lora_rank,
             alpha=lora_alpha,
+            dropout=lora_dropout,
             quantize_base=quantize_base,
         )
         if "output_proj" in lora_modules
