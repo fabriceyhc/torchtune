@@ -119,6 +119,7 @@ class Download(Subcommand):
         try:
             true_output_dir = snapshot_download(
                 args.repo_id,
+                cache_dir="/local1/fabricehc/overdose/.cache/",
                 local_dir=args.output_dir,
                 local_dir_use_symlinks=output_dir_use_symlinks,
                 ignore_patterns=args.ignore_patterns,
