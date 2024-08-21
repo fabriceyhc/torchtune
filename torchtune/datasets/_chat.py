@@ -429,3 +429,132 @@ def custom_wqe_dataset(
         data_files="/data2/fabricehc/impossibility-watermark/data/WQE/train.csv",
         split="train"
     )
+
+
+
+###################################
+# IMPossibility Watermark DATASET #
+###################################
+
+import difflib
+import regex as re 
+from itertools import chain, zip_longest
+
+def find_revisions(original, mutation):
+    def intersperse_lists(list1, list2):
+        return ''.join(chain(*zip_longest(list1, list2)))
+        
+    line1 = re.split(r'(\S+)', original)[1::2]
+    line2 = re.split(r'(\S+)', mutation)[1::2]
+    text1 = re.split(r'(\S+)', original)
+    line1 = text1[1::2]
+    whitespace1 = text1[::2]
+    text2 = re.split(r'(\S+)', mutation)
+    line2 = text2[1::2]
+    whitespace2 = text2[::2]
+    
+    report = ""
+    matcher = difflib.SequenceMatcher(None, line1, line2)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            report += intersperse_lists(whitespace1[i1:i2], line1[i1:i2]) 
+        elif tag == 'delete':
+            whitespace1[i1] = ''
+            text = intersperse_lists(whitespace1[i1:i2], line1[i1:i2])
+            report += f" <DELETE: \"{text}\">"
+        elif tag == 'insert':
+            whitespace2[j1] = ''
+            text = intersperse_lists(whitespace2[j1:j2], line2[j1:j2])
+            report += f" <INSERT: \"{text}\">"
+        elif tag == 'replace':
+            whitespace1[i1] = ''
+            whitespace2[j1] = ''
+            text1 = intersperse_lists(whitespace1[i1:i2], line1[i1:i2])
+            text2 = intersperse_lists(whitespace2[j1:j2], line2[j1:j2])
+            report += f" <REPLACE: \"{text1}\" WITH: \"{text2}\">"
+    return report
+
+IMP_INPUT_TEMPLATE = textwrap.dedent("""
+    ### Instructions: 
+    We are seeking your help to find an answer to this problem:
+    The following is a prompt that was given to an AI assistant, and its corresponding response. 
+
+    ### Here is the prompt:
+    {{instruction}}
+
+    ### Original Response:
+    {{original_response}}
+    
+    We are considering making the following edits to the response:
+
+    ### Revisions:
+    {{revisions}}
+    
+    ### Final Response:
+    {{mutated_response}}
+
+    ### Instructions:
+    We want to know if these revisions will lead to a loss in quality compared to the original.
+    It is fine if some ideas are expressed differently, but we want to avoid introducing errors into the response.
+    Be strict in your evaluation and consider the overall quality of the response, and take note of the differences between the two.
+    If the revisions are acceptable, respond with "Yes", and if not, "No".
+
+    Answer: 
+""")
+
+
+def IMP_row_to_label(row):
+    if "original" in row["selected"]:
+        return "No"
+    if "mutated" in row["selected"]:
+        return "Yes"
+    if "tie" in row["selected"]:
+        return "Yes"
+
+def imp_message_converter(sample: Mapping[str, Any], train_on_input=None) -> List[Message]:
+    revisions = find_revisions(sample['original_response'], sample['mutated_response'])
+    input_msg = IMP_INPUT_TEMPLATE\
+        .replace("{{instruction}}", sample["prompt"])\
+        .replace("{{original_response}}", sample["original_response"])\
+        .replace("{{revisions}}", revisions)\
+        .replace("{{mutated_response}}", sample["mutated_response"])
+    output_msg = IMP_row_to_label(sample)
+
+    # print(f"input_msg: {input_msg}")
+    # print(f"output_msg: {output_msg}")
+
+    user_message = Message(
+        role="user",
+        content=input_msg,
+        masked=False,  # True if not training on prompt
+    )
+    assistant_message = Message(
+        role="assistant",
+        content=output_msg,
+        masked=False,
+    )
+    # A single turn conversation
+    messages = [user_message, assistant_message]
+
+    return messages
+
+def custom_imp_dataset(
+    *,
+    tokenizer: ModelTokenizer,
+    max_seq_len: int = 4096,  
+) -> ChatDataset:
+
+    return ChatDataset(
+        tokenizer=tokenizer,
+        # For local csv files, we specify "csv" as the source, just like in
+        # load_dataset
+        source="csv",
+        convert_to_messages=imp_message_converter,
+        # Llama3 does not need a chat format
+        chat_format=None,
+        max_seq_len=max_seq_len,
+        # To load a local file we specify it as data_files just like in
+        # load_dataset
+        data_files="/data2/fabricehc/impossibility-watermark/data/IMP/train.csv",
+        split="train"
+    )
