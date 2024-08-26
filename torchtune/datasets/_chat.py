@@ -432,9 +432,9 @@ def custom_wqe_dataset(
 
 
 
-###################################
-# IMPossibility Watermark DATASET #
-###################################
+################################################
+# IMPossibility Watermark - DiffOracle DATASET #
+################################################
 
 import difflib
 import regex as re 
@@ -550,6 +550,94 @@ def custom_imp_dataset(
         # load_dataset
         source="csv",
         convert_to_messages=imp_message_converter,
+        # Llama3 does not need a chat format
+        chat_format=None,
+        max_seq_len=max_seq_len,
+        # To load a local file we specify it as data_files just like in
+        # load_dataset
+        data_files="/data2/fabricehc/impossibility-watermark/data/IMP/train.csv",
+        split="train"
+    )
+
+
+####################################################
+# IMPossibility Watermark - MutationOracle DATASET #
+####################################################
+
+import difflib
+import regex as re 
+from itertools import chain, zip_longest
+
+IMP_MUTATIONORACLE_INPUT_TEMPLATE = textwrap.dedent("""
+    ### Instructions: 
+    We are seeking your help to find an answer to this problem:
+    The following is a prompt that was given to an AI assistant, and its corresponding response. 
+    After that, is the same answer, but rephrased. 
+
+    ### Here is the prompt:
+    {{instruction}}
+
+    ### Original Response:
+    {{original_response}}             
+
+    ### Rephrased Response:
+    {{mutated_response}}
+
+    ### Instructions: 
+    We want to know if the rephrased answer maintains the same level of quality and accuracy as the original.
+    Please make your evaluation based on the level of grammatical correctness, fluency, accuracy, structure, and clarity in the original vs rephrased answers.
+    Be strict in your evaluation and consider the overall quality of the response, and take note of the differences between the two.
+    If the rephrased response is just as good or better, output "Yes", otherwise output "No".
+
+    Answer: 
+""")
+
+
+def IMP_row_to_label(row):
+    if "original" in row["selected"]:
+        return "No"
+    if "mutated" in row["selected"]:
+        return "Yes"
+    if "tie" in row["selected"]:
+        return "Yes"
+
+def imp_mutationoracle_message_converter(sample: Mapping[str, Any], train_on_input=None) -> List[Message]:
+    input_msg = IMP_MUTATIONORACLE_INPUT_TEMPLATE\
+        .replace("{{instruction}}", sample["prompt"])\
+        .replace("{{original_response}}", sample["original_response"])\
+        .replace("{{mutated_response}}", sample["mutated_response"])
+    output_msg = IMP_row_to_label(sample)
+
+    # print(f"input_msg: {input_msg}")
+    # print(f"output_msg: {output_msg}")
+
+    user_message = Message(
+        role="user",
+        content=input_msg,
+        masked=False,  # True if not training on prompt
+    )
+    assistant_message = Message(
+        role="assistant",
+        content=output_msg,
+        masked=False,
+    )
+    # A single turn conversation
+    messages = [user_message, assistant_message]
+
+    return messages
+
+def custom_imp_mutationoracle_dataset(
+    *,
+    tokenizer: ModelTokenizer,
+    max_seq_len: int = 4096,  
+) -> ChatDataset:
+
+    return ChatDataset(
+        tokenizer=tokenizer,
+        # For local csv files, we specify "csv" as the source, just like in
+        # load_dataset
+        source="csv",
+        convert_to_messages=imp_mutationoracle_message_converter,
         # Llama3 does not need a chat format
         chat_format=None,
         max_seq_len=max_seq_len,
